@@ -1,8 +1,8 @@
 FROM ubuntu:latest
 
-RUN apt-get update && apt-get install -y \
-  google-chrome-stable=113.0.5672.92-1~deb11u1 \
-  python3-pip
+RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+
+RUN sudo dpkg -i google-chrome-stable_current_amd64.deb
 
 RUN pip3 install --upgrade pip
 
