@@ -1,12 +1,20 @@
-FROM ubuntu:latest
+FROM ubuntu:22.04
 
-RUN sudo apt-get install wget
+RUN apt-get update; apt-get clean
 
-RUN sudo apt install dpkg
+# Install wget.
+RUN apt-get install -y wget
 
-RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+RUN apt-get install -y gnupg
 
-RUN sudo dpkg -i google-chrome-stable_current_amd64.deb
+# Set the Chrome repo.
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list
+
+# Install Chrome.
+RUN apt-get update && apt-get -y install google-chrome-stable
+
+RUN apt-get -y install python3-pip
 
 RUN pip3 install --upgrade pip
 
@@ -17,4 +25,4 @@ WORKDIR /app
 COPY . .
 
 # Start app
-CMD ["python", "run.py"]
+CMD ["python3", "run.py"]

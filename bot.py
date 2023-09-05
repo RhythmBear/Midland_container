@@ -24,9 +24,11 @@ load_dotenv()
 
 class MidlandBot:
 
-    def __init__(self, user_name, password, monitoring_id, ni_number, start, end):
+    def __init__(self, test, user_name, password, monitoring_id, ni_number, start, end):
+        self.testing = test
         self.username = user_name
         self.password = password
+        self.previously_applied = False
         self.home_page = "https://homes.midlandheart.org.uk/"
         self.tab_before_login = ""
         self.start_time = start
@@ -36,6 +38,7 @@ class MidlandBot:
         self.listings_for_today = []
         self.logger = logging.getLogger("Midland_logger")
         self.logger.setLevel(logging.INFO)  # Set the desired logging level for this class
+        self.application_success = False
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
         # Create a StreamHandler to log to console (optional)
@@ -85,17 +88,19 @@ class MidlandBot:
         options.add_experimental_option("useAutomationExtension", False)
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-gpu')
-        options.add_argument('--remote-debugging-port=9222')
+        options.add_argument('--disable-setuid-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
 
         # Run in the headless browser
         options.headless = True
+        options.add_argument('--window-size=1920,1080')
 
         # Set this to make it work with the docker container
         options.add_argument('--disable-gpu')
         # options.add_argument('--remote-debugging-port=9222')
 
         # Setting the driver path and requesting a page
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
+        driver = webdriver.Chrome(service=ChromeService(), options=options)
 
         # Changing the property of the navigator value for webdriver to undefined
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
@@ -191,8 +196,9 @@ class MidlandBot:
             time.sleep(2)
 
         # Save Cookies if the login was successful
-        if self.login_success():
-            time.sleep(3)
+        login_successful = self.login_success()
+        if login_successful:
+            time.sleep(1)
 
             # # Delete existing cookies and save new cookies
             # self.delete_cookie_file()
@@ -201,7 +207,7 @@ class MidlandBot:
 
         # self.close_login_tab()
 
-        return self.login_success()
+        return login_successful
 
     def login_success(self):
         """
@@ -498,6 +504,7 @@ class MidlandBot:
 
         if str(id) not in self.driver.current_url:
             self.driver.get(f"https://homes.midlandheart.org.uk/Search.PropertyDetails.aspx?PropertyId={id}")
+            self.logger.info("Loading Listing Page")
 
         wait = WebDriverWait(self.driver, waiting_timeout)
 
@@ -526,9 +533,8 @@ class MidlandBot:
         except TimeoutException:
             # If neither of the buttons becomes visible within the specified timeout (30 seconds),
             # the WebDriverWait will raise a TimeoutException, and the script will come here.
-            self.logger.info(
-                "Neither the Continue Application button nor the 'Submit Application' button became visible.")
-            self.logger.info("Listing has not become avialable... Refreshing page...")
+            # self.logger.info("Neither the Continue Application button nor the 'Submit Application' button became visible.")
+            # self.logger.info("Listing has not become avialable... Refreshing page...")
 
             return False
 
@@ -552,13 +558,17 @@ class MidlandBot:
         driver.find_element(By.XPATH, './/span[@class="heading6"]').click()
         time.sleep(5)
 
-        # Wait till the close button in clickable
-        # test_bot.button_is_clickable('//span[@class="fa fa-fw fa-close fa-2x"]', 10)
-        close_buttons = driver.find_elements(By.XPATH, '//span[@class="fa fa-fw fa-close fa-2x"]')
+        # Wait till the close button is clickable
+        if self.button_is_clickable('//span[@class="fa fa-fw fa-close fa-2x"]', 5):
 
-        avail_files = self.driver.find_elements(By.XPATH, '//aside//input[@value="Add"]')
+            avail_files = self.driver.find_elements(By.XPATH, '//aside//input[@value="Add"]')
         # self.logger.info(avail_files)
-        time.sleep(1)
+            time.sleep(1)
+
+        else:
+            avail_files = self.driver.find_elements(By.XPATH, '//aside//input[@value="Add"]')
+
+        close_buttons = driver.find_elements(By.XPATH, '//span[@class="fa fa-fw fa-close fa-2x"]')
 
         for i in range(len(close_buttons)):
             try:
@@ -569,24 +579,45 @@ class MidlandBot:
                 continue
 
         return len(avail_files)
-
     @staticmethod
-    def add_nth_item(driver, index):
+    def element_is_now_stale(element):
+        try:
+            wait = WebDriverWait(element, 5)
+            wait.until(EC.staleness_of(element))
+        except TimeoutException:
+            return False
+
+        else:
+            return True
+
+    def add_nth_item(self, driver, index):
         # Click the card title to open the pop up for the files
         driver.find_element(By.XPATH, './/span[@class="heading6"]').click()
-        time.sleep(3)
+        button_is_clickable = self.button_is_clickable('//aside//input[@value="Add"]', 5)
+
+        self.logger.info(f"The Add item is now Clickable : {button_is_clickable}")
+
+        if not button_is_clickable:
+            time.sleep(3)
 
         # Get the list of available files
         avail_files = driver.find_elements(By.XPATH, '//aside//input[@value="Add"]')
 
         # If there are no uploaded files
-        if avail_files == []:
-            return False
-            # Get the item in the index given
+        if not avail_files:
+            return False, len(avail_files)
+
+        # Get the item in the index given
         item_to_select = avail_files[index]
+        # Click the add button
         item_to_select.click()
-        time.sleep(3)
-        return True
+        # wait for the element to become stale
+        element_stale = self.element_is_now_stale(item_to_select)
+        self.logger.info(f"The last add button is now stale : {element_stale}")
+        if not element_stale:
+            time.sleep(3)
+
+        return True, len(avail_files)
 
     @staticmethod
     def get_all_cards(driver):
@@ -605,17 +636,61 @@ class MidlandBot:
             return title_attribute
         except NoSuchElementException:
             return None
+        
+    def button_is_grayed_out(self, xpath):
+        time.sleep(1)
+        button_locator = (By.XPATH, xpath)
+        try:
+            button = self.driver.find_element(*button_locator)
+            return button.is_enabled() == False or "disabled" in button.get_attribute("class")
+        except Exception as e:
+            print(f"An error occurred: {str(e)}")
+            return False
+
+        
+    def listing_has_been_applied_for(self):
+        if str(self.listing_id) not in self.driver.current_url:
+            self.logger.info("Loading Listing Page")
+            self.driver.get(f"https://homes.midlandheart.org.uk/Search.PropertyDetails.aspx?PropertyId={self.listing_id}")
+            
+
+        # Check for the view application button to see if we've already applied for the listing before.
+        
+        result = self.button_is_clickable('//input[@type="submit" and @value="View Application"]', 3)
+    
+        if not result:
+            save_grayed = self.button_is_grayed_out('//input[@value="Save Property" and @type="submit"]')
+            if save_grayed:
+                return True
+            else:
+                self.logger.info("Listing has not been previosuly applied to before.")
+        return result
+        # self.driver.find_element(By.XPATH, '//input[@type="submit" and @value="View Application"]')
+
+
 
     def monitor_listing(self, id: int):
         start_time = dtime(self.start_time, 0)
         end_time = dtime(self.end_time, 0)
         timeout = 20
+        
+        # Check to make sure the listing has not been applied for before
+        if self.listing_has_been_applied_for():
+            self.logger.info(f"Listing {id} has been previously applied for by user")
+            self.send_message_to_telegram(f"Listing {id} has been previously applied for by user. Closing Bot...")
+            self.application_success = True
+            self.previously_applied = True
+            return True
+            
+        else:
+            pass
 
         self.logger.info(f'Monitoring from time {self.start_time} --> {self.end_time}')
+        self.logger.info(f'Bot is currently waiting for Listing to become available...')
         while start_time <= datetime.now().time() <= end_time:
             if dtime(10, 30) <= datetime.now().time() <= end_time:
                 timeout = 10
-                self.logger.info(f"Waiting time is now {timeout}")
+                # self.logger.info(f"Waiting time is now {timeout}")
 
             time.sleep(randint(5, 10))
             status = self.is_listing_available(id=id, waiting_timeout=timeout)
@@ -655,9 +730,9 @@ class MidlandBot:
         :param element: The element to interact with
         :type element: selenium.Element
         """
-        time.sleep(randint(0, 3))
+        time.sleep(randint(0, 1))
         self.action.move_to_element(element)
-        time.sleep(randint(0, 3))
+        time.sleep(randint(0, 1))
         element.click()
 
     def button_is_clickable(self, button_xpath, timeout=3):
@@ -678,13 +753,13 @@ class MidlandBot:
         :param text_to_enter: The text to be entered into the selenium function
         :type text_to_enter: string
         """
-        time.sleep(randint(0, 3))
+        time.sleep(randint(0, 2))
         self.action.move_to_element(element)
-        time.sleep(randint(0, 3))
+        time.sleep(randint(0, 1))
         element.send_keys(text_to_enter)
 
     def continue_button_clickable(self):
-        return self.button_is_clickable('//input[@type="submit" and @value="Continue"]', 2)
+        return self.button_is_clickable('//input[@type="submit" and @value="Continue"]', 3)
 
     def get_top_cards(self):
         top_cards_con = self.driver.find_element(By.ID,
@@ -736,11 +811,9 @@ class MidlandBot:
     def check_and_click_continue_button(self):
         if self.continue_button_clickable():
             self.click_continue_button()
-            next_page = self.click_continue_button()
-            if next_page:
-                return True
-            else:
-                pass
+            return True
+        else:
+            return False
 
     def pass_eligibility_stage(self):
         """
@@ -761,6 +834,7 @@ class MidlandBot:
                 self.logger.info("All requirements have been filled, Clicking button to proceed to next stage...")
 
                 self.interact_and_click(continue_button)
+
                 return True
 
             else:
@@ -788,7 +862,6 @@ class MidlandBot:
     def pass_evidence_stage(self):
         # Check to ensure that we are on teh right page
         if self.on_valid_page('Evidence'):
-            time.sleep(3)
             all_top_cards = self.get_top_cards()
             self.logger.info(f"Found {len(all_top_cards)} categories of requirements")
 
@@ -800,59 +873,82 @@ class MidlandBot:
                 alll_cards = self.get_top_cards()
                 active_top_card = alll_cards[u]
                 self.logger.info(active_top_card.text)
-                time.sleep(5)
+                time.sleep(3)
                 try:
                     self.interact_and_click(active_top_card)
                 except ElementNotInteractableException:
+                    self.logger.info("Top Card not allowing interaction")
                     pass
                 # Get the individual Cards beneath the main top_card
                 requirements_cards = self.get_all_cards(self.driver)
                 num_of_cards = len(requirements_cards)
+                time.sleep(3)
 
                 for i in range(num_of_cards):
-                    time.sleep(5)
+                    time.sleep(1)
                     current_card = self.get_all_cards(self.driver)[i]
                     current_card_name = self.card_name(current_card)
-                    self.logger.info(f"\nCard --> {current_card_name}")
-                    # self.logger.info(current_card.text)
-                    files_uploaded = self.get_files_uploaded(current_card)
-                    files_available = self.get_files_available(current_card)
 
-                    if files_available == 0:
-                        self.logger.info(f"No File was found for {current_card_name}")
-                        continue
-                    if files_uploaded >= files_available:
+                    if self.get_files_uploaded(current_card) >= 1:
                         self.logger.info(f"All requirements have been fufilled for the {current_card_name} card")
                         continue
-                    self.logger.info("\n")
-                    self.logger.info(f"files_added : {files_uploaded} \nfiles available : {files_available}")
+                    self.logger.info(f"Card --> {current_card_name}")
+                    if 'A copy is required' in current_card.text:
+                        self.logger.info('This card requires Multiple files')
+                        num_loops = 10
+                    else:
+                        num_loops = 1
+                    # self.logger.info(current_card.text)
+                    # files_uploaded = self.get_files_uploaded(current_card)
+                    # files_available = self.get_files_available(current_card)
+
+                    # if files_available == 0:
+                    #     self.logger.info(f"No File was found for {current_card_name}")
+                    #     continue
+                    # if files_uploaded >= files_available:
+                    #     self.logger.info(f"All requirements have been fufilled for the {current_card_name} card")
+                    #     continue
+                    # self.logger.info("\n")
+                    # self.logger.info(f"files_added : {files_uploaded} \nfiles available : {files_available}")
 
                     # loop through the number of available files and add each one.
-                    for j in range(files_available):
+
+                    for j in range(num_loops):
                         current_card = self.get_all_cards(self.driver)[i]
-                        success = self.add_nth_item(current_card, j)
+
+                        try:
+                            success, num = self.add_nth_item(current_card, j)
+                        except IndexError:
+                            self.logger.info('Already exhausted files to be added')
+                            break
 
                         # Check if the attempt to upload the files were succesful else
                         if success:
-                            new_current_card = self.get_all_cards(self.driver)[i]
-                            name_of_file_added = self.get_latest_file_uploaded_to_card(new_current_card)
-                            self.logger.info(f"Successfully uploaded file: {name_of_file_added} for {current_card_name}")
-                            files_uploaded += 1
+                            # new_current_card = self.get_all_cards(self.driver)[i]
+                            # name_of_file_added = self.get_latest_file_uploaded_to_card(new_current_card)
+                            # self.logger.info(f"Successfully uploaded file: {name_of_file_added} for {current_card_name}")
+                            # files_uploaded += 1
+                            self.logger.info(f'Successfully uploaded file for {current_card_name}')
                         else:
-                            self.logger.info(f"There are no Uploaded files for {current_card_name}")
+                            self.logger.info(
+                                f"Either something went wrong or there are no Uploaded files for {current_card_name}")
 
-                    if files_uploaded >= files_available:
-                        self.logger.info(f"Uploaded all available files for {current_card_name}")
+                        # Check to see if we can continue the loop
+                        if j == num - 1:
+                            self.logger.info('Uploaded the last file for this card')
+                            break
+                        else:
+                            continue
+
+                    # if files_uploaded >= files_available:
+                    #     self.logger.info(f"Uploaded all available files for {current_card_name}")
 
                     can_proceed_to_next = self.check_and_click_continue_button()
                     if can_proceed_to_next:
                         return True
 
-            if self.continue_button_clickable():
-                self.click_continue_button()
-                next_page = self.click_continue_button()
-                if next_page:
-                    return True
+            if self.check_and_click_continue_button():
+                return True
             else:
                 self.logger.info("Some Requirements were not met. Cannot proceed to Next Stage.")
                 return False
@@ -864,9 +960,9 @@ class MidlandBot:
         # Confirm that we are on the vaild page
         if self.on_valid_page('Contact'):
             # Since the information on this page is not really compulsory we can proceed
-            progress = self.click_continue_button()
+            progress = self.check_and_click_continue_button()
             if progress:
-                self.logger.info("All Extra Stage requirements have been filled, Proceeding to next stage...")
+                self.logger.info("All Contact Details requirements have been filled, Proceeding to next stage...")
 
             else:
                 self.logger.info("Continue button on this page is not clickable.")
@@ -889,7 +985,7 @@ class MidlandBot:
             else:
                 self.interact_and_type(ni_input, ni_number)
 
-            progress = self.click_continue_button()
+            progress = self.check_and_click_continue_button()
             if progress:
                 self.logger.info("All Extra Stage requirements have been filled, Proceeding to next stage...")
 
@@ -901,9 +997,9 @@ class MidlandBot:
         # Confirm that we are on the vaild page
         if self.on_valid_page('savings'):
             # Since the information on this page is not really compulsory we can proceed
-            progress = self.click_continue_button()
+            progress = self.check_and_click_continue_button()
             if progress:
-                self.logger.info("All Extra Stage requirements have been filled, Proceeding to next stage...")
+                self.logger.info("All Savings and Income requirements have been filled, Proceeding to next stage...")
 
             else:
                 self.logger.info("Continue button on this page is not clickable.")
@@ -914,9 +1010,9 @@ class MidlandBot:
     def pass_equality_stage(self):
         if self.on_valid_page('Equality'):
             # Since the information on this page is not really compulsory we can proceed
-            progress = self.click_continue_button()
+            progress = self.check_and_click_continue_button()
             if progress:
-                self.logger.info("All Extra Stage requirements have been filled, Proceeding to next stage...")
+                self.logger.info("All Equality requirements have been filled, Proceeding to next stage...")
 
             else:
                 self.logger.info("Continue button on this page is not clickable.")
@@ -931,8 +1027,17 @@ class MidlandBot:
             self.interact_and_click(yes_button)
 
             submit_button = self.driver.find_element(By.XPATH, '//input[@type="submit" and @value="Submit"]')
-            self.logger.info("It works, I cannot submit it now...")
-            self.interact_and_click(submit_button)
+
+            if self.testing == 'True':
+                print(type(self.testing))
+                self.logger.info("It works, I cannot submit cause it is a test")
+                self.application_success = True
+
+            else:
+                self.interact_and_click(submit_button)
+                self.application_success = True
+                self.logger.info(f"Successfully submitted Application for listing {self.listing_id}")
+                self.send_message_to_telegram(f"Successfully submitted {self.username}'s Application for listing {self.listing_id}")
 
     def start_bot(self):
         """
@@ -948,48 +1053,48 @@ class MidlandBot:
         self.get_results_for_city()
 
         # Monitor the listing with the given id and click on the button when the listing becomes available.
-        # self.send_message_to_telegram(
-        #     f'"Currently Monitoring Listing https://homes.midlandheart.org.uk/Search.PropertyDetails.aspx?PropertyId={self.listing_id}')
+        self.send_message_to_telegram(
+            f'Currently Monitoring Listing https://homes.midlandheart.org.uk/Search.PropertyDetails.aspx?PropertyId={self.listing_id}')
 
-        self.logger.info(f"Current Page --> {self.driver.title}")
-        self.monitor_listing(self.listing_id)
         time.sleep(3)
-
-        self.pass_eligibility_stage()
-        time.sleep(5)
         self.logger.info(f"Current Page --> {self.driver.title}")
+        available = self.monitor_listing(self.listing_id)
+        time.sleep(2)
 
-        self.pass_preference_group()
-        time.sleep(5)
-        self.logger.info(f"Current Page --> {self.driver.title}")
+        if available and not self.previously_applied:
+            self.pass_eligibility_stage()
+            time.sleep(2)
+            self.logger.info(f"Current Page --> {self.driver.title}")
 
-        self.pass_evidence_stage()
-        time.sleep(5)
-        self.logger.info(f"Current Page --> {self.driver.title}")
+            self.pass_preference_group()
+            time.sleep(2)
+            self.logger.info(f"Current Page --> {self.driver.title}")
 
-        self.pass_contact_details()
-        time.sleep(5)
-        self.logger.info(f"Current Page --> {self.driver.title}")
+            self.pass_evidence_stage()
+            time.sleep(2)
+            self.logger.info(f"Current Page --> {self.driver.title}")
 
-        self.pass_extra_stage(self.listing_id)
-        time.sleep(5)
-        self.logger.info(f"Current Page --> {self.driver.title}")
+            self.pass_contact_details()
+            time.sleep(2)
+            self.logger.info(f"Current Page --> {self.driver.title}")
 
-        self.pass_savings_income_stage()
-        time.sleep(5)
-        self.logger.info(f"Current Page --> {self.driver.title}")
+            self.pass_extra_stage(self.listing_id)
+            time.sleep(2)
+            self.logger.info(f"Current Page --> {self.driver.title}")
 
-        self.pass_equality_stage()
-        time.sleep(5)
-        self.logger.info(f"Current Page --> {self.driver.title}")
+            self.pass_savings_income_stage()
+            time.sleep(2)
+            self.logger.info(f"Current Page --> {self.driver.title}")
 
-        self.pass_confirm_details_stage()
-        time.sleep(5)
-        self.logger.info(f"Current Page --> {self.driver.title}")
+            self.pass_equality_stage()
+            time.sleep(2)
+            self.logger.info(f"Current Page --> {self.driver.title}")
 
+            self.pass_confirm_details_stage()
+            time.sleep(2)
+            self.logger.info(f"Current Page --> {self.driver.title}")
 
-
-
-
-
+        else:
+            self.logger.info("Either the listing has already been applied to, Or the listing isnt available")
+        
 
