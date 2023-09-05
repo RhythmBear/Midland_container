@@ -672,7 +672,7 @@ class MidlandBot:
     def monitor_listing(self, id: int):
         start_time = dtime(self.start_time, 0)
         end_time = dtime(self.end_time, 0)
-        timeout = 20
+        timeout = 15
         
         # Check to make sure the listing has not been applied for before
         if self.listing_has_been_applied_for():
@@ -688,11 +688,11 @@ class MidlandBot:
         self.logger.info(f'Monitoring from time {self.start_time} --> {self.end_time}')
         self.logger.info(f'Bot is currently waiting for Listing to become available...')
         while start_time <= datetime.now().time() <= end_time:
-            if dtime(10, 30) <= datetime.now().time() <= end_time:
-                timeout = 10
+            if dtime(10, 0) <= datetime.now().time() <= end_time:
+                timeout = 5
                 # self.logger.info(f"Waiting time is now {timeout}")
 
-            time.sleep(randint(5, 10))
+            time.sleep(randint(1, 5))
             status = self.is_listing_available(id=id, waiting_timeout=timeout)
             if status:
                 return status
@@ -730,9 +730,9 @@ class MidlandBot:
         :param element: The element to interact with
         :type element: selenium.Element
         """
-        time.sleep(randint(0, 1))
+        time.sleep(0.1)
         self.action.move_to_element(element)
-        time.sleep(randint(0, 1))
+        time.sleep(0.2)
         element.click()
 
     def button_is_clickable(self, button_xpath, timeout=3):
@@ -753,9 +753,9 @@ class MidlandBot:
         :param text_to_enter: The text to be entered into the selenium function
         :type text_to_enter: string
         """
-        time.sleep(randint(0, 2))
+        time.sleep(0.25)
         self.action.move_to_element(element)
-        time.sleep(randint(0, 1))
+        time.sleep(0.25)
         element.send_keys(text_to_enter)
 
     def continue_button_clickable(self):
@@ -814,6 +814,14 @@ class MidlandBot:
             return True
         else:
             return False
+        
+    def wait_for_page_load(self, position):
+        wait = WebDriverWait(self.driver, 2)  # You can adjust the timeout as needed
+        try:
+            element = wait.until(EC.visibility_of_element_located((By.XPATH, f'//div[@class="wizard-item active label-bottom"]/div[1]/div[contains(text(), "{position}")]')))
+        except TimeoutException:
+            print("Done Waiting...") 
+
 
     def pass_eligibility_stage(self):
         """
@@ -873,7 +881,7 @@ class MidlandBot:
                 alll_cards = self.get_top_cards()
                 active_top_card = alll_cards[u]
                 self.logger.info(active_top_card.text)
-                time.sleep(3)
+                time.sleep(1)
                 try:
                     self.interact_and_click(active_top_card)
                 except ElementNotInteractableException:
@@ -882,10 +890,10 @@ class MidlandBot:
                 # Get the individual Cards beneath the main top_card
                 requirements_cards = self.get_all_cards(self.driver)
                 num_of_cards = len(requirements_cards)
-                time.sleep(3)
+                time.sleep(1)
 
                 for i in range(num_of_cards):
-                    time.sleep(1)
+                    time.sleep(0.5)
                     current_card = self.get_all_cards(self.driver)[i]
                     current_card_name = self.card_name(current_card)
 
@@ -895,7 +903,7 @@ class MidlandBot:
                     self.logger.info(f"Card --> {current_card_name}")
                     if 'A copy is required' in current_card.text:
                         self.logger.info('This card requires Multiple files')
-                        num_loops = 10
+                        num_loops = 1
                     else:
                         num_loops = 1
                     # self.logger.info(current_card.text)
@@ -1029,7 +1037,6 @@ class MidlandBot:
             submit_button = self.driver.find_element(By.XPATH, '//input[@type="submit" and @value="Submit"]')
 
             if self.testing == 'True':
-                print(type(self.testing))
                 self.logger.info("It works, I cannot submit cause it is a test")
                 self.application_success = True
 
@@ -1059,37 +1066,44 @@ class MidlandBot:
         time.sleep(3)
         self.logger.info(f"Current Page --> {self.driver.title}")
         available = self.monitor_listing(self.listing_id)
-        time.sleep(2)
 
         if available and not self.previously_applied:
+            self.wait_for_page_load(1)    
             self.pass_eligibility_stage()
-            time.sleep(2)
+            # time.sleep(2)
             self.logger.info(f"Current Page --> {self.driver.title}")
 
+            self.wait_for_page_load(2)  
             self.pass_preference_group()
-            time.sleep(2)
+            # time.sleep(2)
             self.logger.info(f"Current Page --> {self.driver.title}")
-
+            
+            self.wait_for_page_load(3)  
             self.pass_evidence_stage()
-            time.sleep(2)
+            # time.sleep(2)
             self.logger.info(f"Current Page --> {self.driver.title}")
 
+            self.wait_for_page_load(4)  
             self.pass_contact_details()
-            time.sleep(2)
+            # time.sleep(2)
             self.logger.info(f"Current Page --> {self.driver.title}")
 
+            self.wait_for_page_load(5)  
             self.pass_extra_stage(self.listing_id)
-            time.sleep(2)
+            # time.sleep(2)
             self.logger.info(f"Current Page --> {self.driver.title}")
 
+            self.wait_for_page_load(6)  
             self.pass_savings_income_stage()
-            time.sleep(2)
+            # time.sleep(2)
             self.logger.info(f"Current Page --> {self.driver.title}")
 
+            self.wait_for_page_load(7)  
             self.pass_equality_stage()
-            time.sleep(2)
+            # time.sleep(2)
             self.logger.info(f"Current Page --> {self.driver.title}")
 
+            self.wait_for_page_load(8)  
             self.pass_confirm_details_stage()
             time.sleep(2)
             self.logger.info(f"Current Page --> {self.driver.title}")

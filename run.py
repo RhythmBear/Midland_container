@@ -35,12 +35,12 @@ while not application_successful:
         bot_instance.logger.info(f"An {err} Error occured while trying to start bot...") 
         bot_instance.send_message_to_telegram(f"An {err} Error occured while trying to start bot for User: {bot_instance.username} and listing {bot_instance.listing_id}...") 
         if trials >= 3: 
-            bot_instance.logger.info(f"Failed to start the bot win application after {trials} trials... Stopping Bot.")
+            bot_instance.logger.info(f"Failed to start the bot application after {trials} trials... Stopping Bot.")
             bot_instance.send_message_to_telegram(f"Failed to start the bot win application after {trials} trials... \nUser: {bot_instance.username} and listing {bot_instance.listing_id}...")
             break  
         
         else:
-            bot_instance.logger.info("Restarting Bot... Attempt: {trials}")
+            bot_instance.logger.info(f"Restarting Bot... Attempt: {trials}")
     else:
         # Check if the bot successfully submitted the listing and send a message once the Bot instance has been stopped 
         bot_instance.send_message_to_telegram(f"Bot has stopped running... \nJust Completed {bot_instance.username}'s apllication for listing_id = {bot_instance.listing_id}  ")
